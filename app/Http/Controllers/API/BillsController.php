@@ -96,7 +96,7 @@ class BillsController extends Controller
         $data = [];
         foreach($bills as $item) {
             array_push($data, [
-                'ServicePeriodEnd' => $item->ServicePeriodEnd,
+                'ServicePeriodEnd' => date('Y-m-d', strtotime($item->ServicePeriodEnd)),
                 'AccountNumber' => $item->AccountNumber,
                 'BillNumber' => $item->BillNumber,
                 'ConsumerType' => $item->ConsumerType,
