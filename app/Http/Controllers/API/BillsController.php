@@ -343,7 +343,14 @@ class BillsController extends Controller
                         $join->on('Bills.AccountNumber', '=', 'BillsExtension.AccountNumber')
                             ->on('Bills.ServicePeriodEnd', '=', 'BillsExtension.ServicePeriodEnd');
                     })
-                    ->where('Bills.BillNumber', $request['q'])
+                    ->leftJoin('PaidBills', function($join) {
+                        $join->on('Bills.AccountNumber', '=', 'PaidBills.AccountNumber')
+                            ->on('Bills.ServicePeriodEnd', '=', 'PaidBills.ServicePeriodEnd');
+                    })
+                    ->leftJoin('AccountMaster', 'Bills.AccountNumber', '=', 'AccountMaster.AccountNumber')
+                    ->leftJoin('Meter', 'AccountMaster.MeterNumber', '=', 'Meter.MeterNumber')
+                    ->where('Bills.AccountNumber', $request['acctNo'])
+                    ->where('Bills.ServicePeriodEnd', $request['period'])
                     ->select('Bills.ServicePeriodEnd',
                             'Bills.AccountNumber',
                             'Bills.BillNumber',
@@ -405,7 +412,16 @@ class BillsController extends Controller
                             'BillsExtension.Item21',
                             'BillsExtension.Item22',
                             'BillsExtension.Item23',
-                            'BillsExtension.Item24',)
+                            'BillsExtension.Item24',
+                            'PaidBills.NetAmount As NetAmountPaid',
+                            'PaidBills.ORNumber',
+                            'PaidBills.ORDate',
+                            'AccountMaster.ConsumerName',
+                            'AccountMaster.ConsumerAddress',
+                            'AccountMaster.CoreLoss',
+                            'AccountMaster.Route',
+                            'AccountMaster.MeterNumber',
+                            'Meter.Multiplier')
                     ->first();
 
         if ($bill == null) {
@@ -465,14 +481,29 @@ class BillsController extends Controller
                 'Surcharges' => Bills::getSurchargeMobApp($bill),
             ];
 
-            // REGISTER LOG
-            $log = new UserAppLogs;
-            $log->UserId = $request['u'];
-            $log->Type = "Queried Bill";
-            $log->Details = "Queried bill with bill number " . $bill->BillNumber;
-            $log->save();
+            $arrearQry = DB::connection('sqlsrv2')
+                ->table('Bills')
+                ->whereRaw("AccountNumber='" . $request['acctNo'] . "' AND AccountNumber NOT IN (SELECT AccountNumber FROM PaidBills WHERE AccountNumber=Bills.AccountNumber AND ServicePeriodEnd=Bills.ServicePeriodEnd)")
+                ->whereRaw("ServicePeriodEnd != '" . $request['period'] . "'")
+                ->select(
+                    'Bills.*'
+                )
+                ->orderByDesc('ServicePeriodEnd')
+                ->get();
 
-            return response()->json((object)array_merge((array)$bill, (array)$rates, (array)$ratesExtension,  (array)$surcharge), $this-> successStatus); 
+            $arrearsAmount = 0;
+            $arrearsCount = 0;
+            foreach($arrearQry as $item) {
+                $arrearsAmount += $item->NetAmount;
+                $arrearsCount++;
+            }
+
+            $arrears = [
+                'ArrearsAmount' => $arrearsAmount,
+                'ArrearsCount' => $arrearsCount,
+            ];
+
+            return response()->json((object)array_merge((array)$bill, (array)$rates, (array)$ratesExtension, (array)$surcharge, (array)$arrears), $this-> successStatus); 
         }
     }
 
